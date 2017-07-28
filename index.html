@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Stock</title>
+<style>
+canvas
+{
+    border-width: 1px;
+    border-color: black;
+    border-style: solid;
+}
+
+#errorParagraph
+{
+    color: red;
+}
+
+#eventParagraph
+{
+    color: blue;
+}
+</style>
+</head>
+<body>
+<div id = "instructionsDIV">
+<p>This is how you play.</p>
+<button id = "startButton">Start</button>
+</div>
+<div style = "display: none" id = "displayDIV">
+<p id = "statusParagraph"></p>
+<p id = "eventParagraph"></p>
+<p id = "errorParagraph"></p>
+</div>
+<div style = "display: none" id = "actionDIV">
+<label for = "buySellSelect">Action</label>
+<select id = "buySellSelect">
+<option>Buy</option>
+<option>Sell</option>
+</select>
+<label>Resource</label>
+<select id = "resourceSelect">
+</select>
+<label for = "quantityInput">Quantity</label>
+<input id = "quantityInput" type = "number" value = "5">
+<button onclick = "max()">Max</button>
+<button onclick = "onAction()">Complete</button>
+<button onclick = "onEndTurn()">End Turn</button>
+<div>
+<script>
+"use strict";
+function PriceRange(min, max)
+{
+    this.min = min;
+    this.max = max;
+}
+
+function Price(priceRange, growthType)
+{
+    this.priceRange = priceRange;
+    this.growthType = growthType;
+    this.value = randomRange(priceRange.min, priceRange.max);
+    this.distance = priceRange.max - priceRange.min;
+}
+
+Price.prototype.simulate = function()
+{
+    var up = Math.random() > 0.5;
+
+    if (this.crash)
+    {
+        up = false;
+
+        this.priceRange.max -= 1;
+        this.priceRange.min -= 1;
+    }
+
+    var modifier = null;
+
+    switch (this.growthType)
+    {
+        case GrowthType.SPIKEY:
+            modifier = 2;
+
+            break;
+
+        case GrowthType.FLAT:
+            modifier = 100;
+            break;
+
+        case GrowthType.HILL:
+            modifier = 10;
+            break;
+    }
+
+    this.value += (up ? 1 : -1)*Math.random()*(this.distance/modifier);
+
+    if (this.value > this.priceRange.max)
+        this.value = this.priceRange.max;
+
+    if (this.value <= 0)
+        this.doneCrashing = true;
+
+    if (this.value < this.priceRange.min)
+        this.value = this.priceRange.min;
+};
+
+Price.prototype.getValue = function()
+{
+    return Math.floor(this.value);
+};
+
+var GrowthType =
+{
+    SPIKEY : 0,
+    FLAT : 1,
+    HILL : 2,
+    COUNT : 3
+};
+
+var instructionsDIV = document.getElementById("instructionsDIV");
+var displayDIV = document.getElementById("displayDIV");
+var startButton = document.getElementById("startButton");
+var statusParagraph = document.getElementById("statusParagraph");
+var eventParagraph = document.getElementById("eventParagraph");
+var errorParagraph = document.getElementById("errorParagraph");
+var actionDIV = document.getElementById("actionDIV");
+var buySellSelect = document.getElementById("buySellSelect");
+var resourceSelect = document.getElementById("resourceSelect");
+var quantityInput = document.getElementById("quantityInput");
+var elements = null;
+var remainingElements = null;
+var money = 5000;
+var resources = null;
+var pastPrices = null;
+var prices = null;
+var graphs = null;
+var graphTitles = null;
+var historyLength = 60;
+var updatesPerTurn = 5;
+var percentToCrash = 0.33;
+var eventShown = false;
+
+var width = window.innerWidth;
+var height = window.innerHeight;
+
+
+startButton.onclick = function()
+{
+    instructionsDIV.style.display = "none";
+    displayDIV.style.display = "";
+    actionDIV.style.display = "";
+};
+
+var possibleElements = 
+[
+    "wood",
+    "gas",
+    "stone",
+    "tea",
+    "coffee",
+    "uranium",
+    "dirt",
+    "marble",
+    "tin",
+    "copper",
+    "sapphire",
+    "oil",
+    "ruby",
+    "gold",
+    "silver",
+    "bronze",
+    "unicorn horn",
+    "meat"
+];
+
+function max()
+{
+    var buy = buySellSelect.options[buySellSelect.selectedIndex].text == "Buy" ? true : false;
+    var resourceIndex = resourceSelect.selectedIndex;
+
+    if (!buy)
+        quantityInput.value = resources[resourceIndex];
+    else
+    {
+        var currentPrice = prices[resourceIndex].getValue();
+
+        var number = Math.floor(money/currentPrice);
+
+        quantityInput.value = number;
+    }
+}
+
+function onAction()
+{
+    quantityInput.value = Math.floor(parseInt(quantityInput.value));
+
+    if (parseInt(quantityInput.value) < 0)
+        quantityInput.value = "0";
+
+    var buy = buySellSelect.options[buySellSelect.selectedIndex].text == "Buy" ? true : false;
+    var resourceIndex = resourceSelect.selectedIndex;
+    var quantity = parseInt(quantityInput.value);
+
+    var canComplete = false;
+    var reason = null;
+
+    if (parseInt(quantityInput.value) == 0)
+    {
+        errorParagraph.innerHTML = "Cannot " + (buy ? "buy" : "sell") + " 0 " + elements[resourceIndex] + ".";
+
+        return;
+    }
+
+    if (buy && prices[resourceIndex].getValue()*quantity <= money)
+    {
+        canComplete = true;
+
+        
+    }
+    else if (buy)
+        reason = quantity + " " + elements[resourceIndex] + " cost $" + Math.floor(prices[resourceIndex].getValue()*quantity) + ", you have $" + Math.floor(money) + ".";
+
+    if (!buy && quantity <= resources[resourceIndex])
+    {
+        canComplete = true;
+    }
+    else
+        if (reason == null)
+            reason = "You do not have " + quantity + " " + elements[resourceIndex] + "; you have " + resources[resourceIndex] + ".";
+
+    if (!canComplete)
+    {
+        errorParagraph.innerHTML = reason;
+
+        max();
+
+        return;
+    }
+
+    if (buy)
+    {
+        resources[resourceIndex] += quantity;
+
+        money -= quantity*prices[resourceIndex].getValue();
+    }
+
+    if (!buy)
+    {
+        resources[resourceIndex] -= quantity;
+
+        money += quantity*prices[resourceIndex].getValue();
+    }
+
+    updateStatus();
+}
+
+function onEndTurn()
+{
+    for (var i = 0; i < updatesPerTurn; ++i)
+        simulatePrices();
+
+    for (var i = 0; i < prices.length; ++i)
+        if (prices[i].doneCrashing)
+        {//the straight line thing may be caused by the pricerange max. If the price doesn't fall fast enough, it is adjusted to do so
+    //check why graph top doesn't relate to This
+            eventParagraph.innerHTML = errorParagraph.innerHTML + (errorParagraph.innerHTML == "" ? "" : "<br>") + elements[i] + " has crashed!";
+
+            eventShown = false;
+
+            resources[i] = 0;
+
+            var num = randomNumber(remainingElements.length);
+
+            var newResource = remainingElements[num];
+
+            remainingElements.splice(num, 1);
+
+            elements[i] = newResource;
+
+            pastPrices[i] = [];
+
+            prices[i] = new Price(new PriceRange(randomRange(0, 50), randomRange(100, 200)), randomRange(0, GrowthType.COUNT - 1));
+
+            for (var j = 0; j < historyLength; ++j)
+                simulatePrice(i);
+
+            var selectElements = resourceSelect.getElementsByTagName("option");
+
+            selectElements[i].innerHTML = newResource;
+        }
+
+    if (Math.random() < percentToCrash)
+    {
+        var index = randomNumber(elements.length);
+
+        prices[index].crash = true;
+    }
+
+    drawPrices();
+
+    updateStatus();
+}
+
+function updateStatus()
+{
+    var string = "$" + money + "<br>";
+
+    for (var i = 0; i < elements.length; ++i)
+        string += elements[i] + ": " + resources[i] + (i != elements.length - 1 ? "<br>" : " ");
+
+    statusParagraph.innerHTML = string;
+
+    for (var i = 0; i < graphTitles.length; ++i)
+        graphTitles[i].innerHTML = elements[i] + " $" + prices[i].getValue();
+
+    if (eventShown)
+        eventParagraph.innerHTML = "";
+    else
+        eventShown = true;
+
+    errorParagraph.innerHTML = "";
+}
+
+function drawGraph(canvas, history, price)
+{
+    var points = [];
+
+    for (var i = 0; i < history.length; ++i)
+        points.push(history[i]);
+
+    points.push(price.getValue());
+
+    //var lowestPoint = 11111;
+    //var highestPoint = -1;
+
+    var lowestPoint = price.priceRange.min;
+    var highestPoint = price.priceRange.max;
+
+    for (var i = 0; i < points.length; ++i)
+        if (points[i] > highestPoint)
+            highestPoint = points[i];
+        else if (points[i] < lowestPoint)
+            lowestPoint = points[i];
+
+    var pointHeightDif = highestPoint - lowestPoint;
+
+    var xScale = canvas.canvas.width/(points.length - 1);
+    var yScale = canvas.canvas.height/pointHeightDif;
+
+    canvas.fillStyle = "white";
+
+    canvas.fillRect(0, 0, canvas.canvas.width, canvas.canvas.height);
+
+    canvas.fillStyle = "black";
+
+    var prev = canvas.lineWidth;
+
+    canvas.lineWidth = 4;
+
+    canvas.beginPath();
+
+    canvas.moveTo(0, canvas.canvas.height - (points[0] - lowestPoint)*yScale);//(pointHeightDif - (points[0] - lowestPoint))*yScale);
+
+    for (var i = 1; i < points.length; ++i)
+    {
+        var xPos = i*xScale;
+        var yPos = canvas.canvas.height - (points[i] - lowestPoint)*yScale;//(pointHeightDif - (points[i] - lowestPoint))*yScale;
+
+        canvas.lineTo(xPos, yPos);
+    }
+
+    canvas.stroke();
+
+    canvas.beginPath();
+
+    canvas.lineWidth = prev;
+}
+
+function randomNumber(max)
+{
+    var value = Math.ceil(Math.random()*max) - 1;
+
+    return value >= 0 ? value : 0;
+}
+
+function randomRange(min, max)
+{
+    return randomNumber((max - min) + 1) + min;
+}
+
+function getRandomElements(count)
+{
+    remainingElements = [];
+
+    var result = [];
+
+    for (var i = 0; i < possibleElements.length; ++i)
+        remainingElements.push(possibleElements[i]);
+
+    for (var i = 0; i < count; ++i)
+    {
+        var index = Math.ceil(Math.random()*remainingElements.length) - 1;
+
+        if (index < 0)
+            index = 0;
+
+        var elem = remainingElements[index];
+
+        result.push(elem);
+
+        remainingElements.splice(index, 1);
+    }
+
+    return result;
+}
+
+function simulatePrice(i)
+{
+    pastPrices[i].push(prices[i].getValue());
+
+    prices[i].simulate();
+
+    if (pastPrices[i].length > historyLength)
+        pastPrices[i].splice(0, pastPrices[i].length - historyLength);
+}
+
+function simulatePrices()
+{
+    for (var i = 0; i < elements.length; ++i)
+        simulatePrice(i);
+}
+
+function drawPrices()
+{
+    for (var i = 0; i < elements.length; ++i)
+        drawGraph(graphs[i], pastPrices[i], prices[i]);
+}
+
+function start()
+{
+    elements = getRandomElements(5);
+
+    for (var i = 0; i < elements.length; ++i)
+        resourceSelect.innerHTML = resourceSelect.innerHTML + "<option>" + elements[i] + "</option>";
+
+    resources = [];
+    pastPrices = [];
+    prices = [];
+    graphs = [];
+    graphTitles = [];
+
+    for (var i = 0; i < elements.length; ++i)
+    {
+        resources[i] = 0;
+        pastPrices[i] = [];
+        prices[i] = new Price(new PriceRange(randomRange(0, 50), randomRange(100, 200)), randomRange(0, GrowthType.COUNT - 1));;
+    }
+
+    for (var i = 0; i < elements.length; ++i)
+    {
+        var div = document.createElement("div");
+
+        var canE = document.createElement("canvas");
+
+        graphs.push(canE.getContext("2d"));
+
+        canE.width = (width/elements.length) - 10;
+        canE.height = 200;
+
+        div.style.display = "inline-block";
+        div.style.margin = "2px";
+
+        var p = document.createElement("p");
+
+        graphTitles.push(p);
+
+        p.innerHTML = elements[i];
+
+        p.style.textAlign = "center";
+
+        div.appendChild(p);
+        div.appendChild(canE);
+
+        displayDIV.insertBefore(div, statusParagraph);
+    }
+
+    for (var i = 0; i < historyLength*8; ++i)
+        simulatePrices();
+
+    drawPrices();
+
+    updateStatus();
+}
+
+start();
+</script>
+</body>
+</head>
